@@ -132,7 +132,7 @@ class ClientState:
 
 # RTMP server class
 class RTMPServer:
-    def __init__(self, host='0.0.0.0', port=1935):
+    def __init__(self, host='127.0.0.1', port=1935):
         # Socket
         # Server socket properties
         self.host = host
@@ -198,7 +198,7 @@ class RTMPServer:
                 del LiveUsers[app]
                 break
 
-        client_state['IncomingPackets'].clear()
+        client_state.IncomingPackets.clear()
 
         del self.client_states[client_id]
         try:
@@ -480,7 +480,7 @@ class RTMPServer:
             else:
                 self.logger.debug("unsupported extension header")
                 return
-            
+
         if codec_id in [7, 12, 13]:
             if frame_type == 1 and payload[1] == 0:
                 client_state.avcSequenceHeader = bytearray(payload)
@@ -490,15 +490,14 @@ class RTMPServer:
                 client_state.videoProfileName = av.getAVCProfileName(info)
                 client_state.videoLevel = info['level']
                 self.logger.info("CodecID: %d, Video Level: %f, Profile Name: %s, Width: %d, Height: %d, Profile: %d",
-                         codec_id, client_state.videoLevel, client_state.videoProfileName,
-                         client_state.videoWidth, client_state.videoHeight, info['profile'])
+                                 codec_id, client_state.videoLevel, client_state.videoProfileName,
+                                 client_state.videoWidth, client_state.videoHeight, info['profile'])
 
         if client_state.videoCodec == 0:
             client_state.videoCodec = codec_id
             client_state.videoCodecName = common.VIDEO_CODEC_NAME[codec_id]
             self.logger.info("Codec Name: %s", client_state.videoCodecName)
 
-        
     async def handle_audio_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
         payload = rtmp_packet['payload']
@@ -512,7 +511,7 @@ class RTMPServer:
             client_state.audioCodecName = av.AUDIO_CODEC_NAME[sound_format];
             client_state.audioSampleRate = av.AUDIO_SOUND_RATE[sound_rate];
             client_state.audioChannels = sound_type + 1;
-    
+
             if sound_format == 4:
                 # Nellymoser 16 kHz
                 client_state.audioSampleRate = 16000
@@ -539,9 +538,8 @@ class RTMPServer:
             else:
                 client_state.audioSampleRate = 48000
                 client_state.audioChannels = payload[11]
-        
-        #write for players
 
+        # write for players
 
     def handle_chunk_size_message(self, client_id, payload):
         # Handle Chunk Size message
@@ -587,46 +585,109 @@ class RTMPServer:
         # Need to add and support other CMDs.
         else:
             self.logger.info("Unsupported invoke command %s!", invoke['cmd'])
-    
+
+
+
+
     async def handle_onPlay(self, client_id, invoke):
+        # Получение состояния клиента (объекта ClientState), связанного с данным client_id.
         client_state = self.client_states[client_id]
+
+        # Проверка: существует ли поток, связанный с приложением клиента (client_state.app).
+        # Если нет, то поток не существует, клиент получает сообщение об ошибке, и соединение разрывается.
         if not client_state.app in LiveUsers:
-            self.logger.warning("Stream not exists to play!")
-            await self.sendStatusMessage(client_id, client_state.publishStreamId, "error", "NetStream.Play.BadName", "Stream not exists")
-            raise DisconnectClientException()
-        
+            self.logger.warning("Stream not exists to play!")  # Логирование предупреждения об отсутствии потока.
+            await self.sendStatusMessage(
+                client_id, client_state.publishStreamId, "error",
+                "NetStream.Play.BadName", "Stream not exists"
+            )  # Отправка клиенту сообщения об ошибке.
+            raise DisconnectClientException()  # Исключение для разрыва соединения с клиентом.
+
+        # Получение идентификатора клиента, который публикует поток (из LiveUsers).
         publisher_id = LiveUsers[client_state.app]['client_id']
+
+        # Извлечение состояния клиента, который публикует поток, на основе его client_id.
         publisher_client_state = self.client_states[publisher_id]
+
+        # Проверка: если у публикующего клиента есть сохраненные метаданные потока.
         if publisher_client_state.metaDataPayload != None:
-            # Sending Publisher Meta Data to Player!
+            # Отправка метаданных публикующего клиента клиенту, который запрашивает воспроизведение.
+            # Создание объекта AMFBytesIO для записи данных AMF (Action Message Format).
             output = amf.AMFBytesIO()
+
+            # Инициализация AMF0 для записи в поток.
             amfWriter = amf.AMF0(output)
+
+            # Запись команды 'onMetaData' в AMF-формате (указывается тип передаваемых данных).
             amfWriter.write('onMetaData')
+
+            # Запись метаданных (например, ширина, высота, битрейт) публикующего клиента.
             amfWriter.write(publisher_client_state.metaData)
+
+            # Логирование отправки метаданных
+            self.logger.info("Sent metadata to client: %s", client_id)
+
+            # Перемещение указателя на начало потока для чтения данных.
             output.seek(0)
+
+            # Чтение готового AMF-пакета в формате байтов.
             payload = output.read()
+
+            # Получение идентификатора потока из заголовка пакета (StreamID) текущего запроса на воспроизведение.
             streamId = invoke['packet']['header']['stream_id']
+
+            # Формирование заголовка RTMP для передачи данных метаданных.
+            # RTMP_CHANNEL_DATA — канал данных, RTMP_TYPE_DATA — тип пакета (метаданные).
             packet_header = common.Header(RTMP_CHANNEL_DATA, 0, len(payload), RTMP_TYPE_DATA, streamId)
+
+            # Создание RTMP-сообщения с заголовком и полезной нагрузкой (метаданными).
             response = common.Message(packet_header, payload)
+
+            # Отправка RTMP-сообщения клиенту, запросившему воспроизведение.
             await self.writeMessage(client_id, response)
 
+
+
     async def handle_publish(self, client_id, invoke):
+        # Извлечение состояния клиента (объекта ClientState), соответствующего заданному client_id.
         client_state = self.client_states[client_id]
+
+        # Определение режима стрима (по умолчанию 'live'). Если в аргументах `invoke['args']` больше одного элемента, используется второй аргумент.
+        # Режим может быть: 'live', 'record', 'append'.
         client_state.stream_mode = 'live' if len(invoke['args']) < 2 else invoke['args'][1]  # live, record, append
+
+        # Установка пути потока (обычно это ключ потока), берется из первого аргумента `invoke['args']`.
         client_state.streamPath = invoke['args'][0]
+
+        # Получение идентификатора потока из заголовка пакета (StreamID).
         client_state.publishStreamId = int(invoke['packet']['header']['stream_id'])
+
+        # Формирование полного пути публикации, состоящего из имени приложения (app) и ключа потока (streamPath).
+        # Удаляет все параметры (например, ?key=value) из пути.
         client_state.publishStreamPath = "/" + client_state.app + "/" + client_state.streamPath.split("?")[0]
-        if(client_state.streamPath == None or client_state.streamPath == ''):
-            self.logger.warning("Stream key is empty!")
-            await self.sendStatusMessage(client_id, client_state.publishStreamId, "error", "NetStream.publish.Unauthorized", "Authorization required.")
-            raise DisconnectClientException()
-        
+
+        # Проверка: если путь потока не задан или пустой, отправляется ошибка клиенту и соединение разрывается.
+        if client_state.streamPath == None or client_state.streamPath == '':
+            self.logger.warning("Stream key is empty!")  # Логирование предупреждения о пустом ключе потока.
+            await self.sendStatusMessage(
+                client_id, client_state.publishStreamId, "error",
+                "NetStream.publish.Unauthorized", "Authorization required."
+            )  # Отправка сообщения клиенту о том, что публикация не авторизована.
+            raise DisconnectClientException()  # Исключение для разрыва соединения с клиентом.
+
+        # Если режим стрима — 'live', выполняется проверка на существующий поток с тем же приложением (app).
         if client_state.stream_mode == 'live':
+            # Если поток с таким приложением уже публикуется, отправляется ошибка клиенту и соединение разрывается.
             if LiveUsers.get(client_state.app) is not None:
-                self.logger.warning("Stream already publishing!")
-                await self.sendStatusMessage(client_id, client_state.publishStreamId, "error", "NetStream.Publish.BadName", "Stream already publishing")
-                raise DisconnectClientException()
-        
+                self.logger.warning("Stream already publishing!")  # Логирование предупреждения о существующем потоке.
+                await self.sendStatusMessage(
+                    client_id, client_state.publishStreamId, "error",
+                    "NetStream.Publish.BadName", "Stream already publishing"
+                )  # Отправка клиенту сообщения об ошибке.
+                raise DisconnectClientException()  # Исключение для разрыва соединения.
+
+            # Добавление нового потока в глобальный словарь `LiveUsers`.
+            # Сохраняются идентификатор клиента, режим стрима, путь стрима, ID стрима и приложение.
             LiveUsers[client_state.app] = {
                 'client_id': client_id,
                 'stream_mode': client_state.stream_mode,
@@ -635,8 +696,24 @@ class RTMPServer:
                 'app': client_state.app,
             }
 
-        self.logger.info("Publish Request Mode: %s, App: %s, Path: %s, publishStreamPath: %s, StreamID: %s", client_state.stream_mode, client_state.app, client_state.streamPath, client_state.publishStreamPath, str(client_state.publishStreamId))
-        await self.sendStatusMessage(client_id, client_state.publishStreamId, "status", "NetStream.Publish.Start", f"{client_state.publishStreamPath} is now published.")
+        # Логирование текущего состояния глобального словаря `LiveUsers` (всех активных потоков).
+        self.logger.info(f"LiveUsers: {LiveUsers}")
+
+        # Логирование информации о запросе публикации, включая режим, приложение, путь, полный путь публикации и идентификатор потока.
+        self.logger.info(
+            "Publish Request Mode: %s, App: %s, Path: %s, publishStreamPath: %s, StreamID: %s",
+            client_state.stream_mode, client_state.app, client_state.streamPath,
+            client_state.publishStreamPath, str(client_state.publishStreamId)
+        )
+
+        # Отправка клиенту статуса о начале публикации (успешное начало потока).
+        await self.sendStatusMessage(
+            client_id, client_state.publishStreamId, "status",
+            "NetStream.Publish.Start", f"{client_state.publishStreamPath} is now published."
+        )
+
+
+
 
     async def sendStatusMessage(self, client_id, sid, level, code, description):
         response = common.Command(
@@ -656,7 +733,7 @@ class RTMPServer:
         
     async def response_createStream(self, client_id, invoke):
         client_state = self.client_states[client_id]
-        client_state.streams = client_state.streams + 1;
+        client_state.streams = client_state.streams + 1
         response = common.Command(
             name='_result',
             id=invoke['id'],
