@@ -72,7 +72,7 @@ class DisconnectClientException(Exception):
 class ClientState:
     def __init__(self):
         self.id = str(uuid.uuid4())
-        self.client_ip = '0.0.0.0'
+        self.client_ip = '127.0.0.1'
 
         # RTMP properties
         self.chunk_size = 128  # Default chunk size
@@ -213,6 +213,8 @@ class RTMPServer:
     async def get_chunk_data(self, client_id):
         # Read a chunk of data from the client
         client_state = self.client_states[client_id]
+        payload_length = 0
+
         try:
             chunk_data = await client_state.reader.readexactly(1)
             if not chunk_data:
@@ -374,7 +376,7 @@ class RTMPServer:
         if c0_data != bytes([0x03]) and c0_data != bytes([0x06]):
             client_state.writer.close()
             await client_state.writer.wait_closed()
-            self.logger.info("Invalid Handshake, Client disconnected: %s", self.client_ip)
+            # self.logger.info("Invalid Handshake, Client disconnected: %s", self.client_ip)
 
         c1_data = await client_state.reader.readexactly(1536)
         clientType = bytes([3])
@@ -396,15 +398,21 @@ class RTMPServer:
         self.logger.debug("Handshake done!")
 
     async def handle_rtmp_packet(self, client_id, rtmp_packet):
+        """
+        Эта главная функция, которая определяет тип пакета и направляет на соответствующий обработчик
+        """
         # Handle an RTMP packet from the client
         # client_state = self.client_states[client_id]
 
         # Extract information from rtmp_packet and process as needed
         msg_type_id = rtmp_packet["header"]["type"]
         payload = rtmp_packet["payload"]
+
+        self.logger.info("Received RTMP packet: type=%s, payload=%s", msg_type_id, payload)
+
         # self.logger.debug("Received RTMP packet:")
         # self.logger.debug("  RTMP Packet Type: %s", msg_type_id)
-    
+
         if msg_type_id == RTMP_TYPE_SET_CHUNK_SIZE:
             self.handle_chunk_size_message(client_id, payload)
         elif msg_type_id == RTMP_TYPE_ACKNOWLEDGEMENT:
@@ -425,6 +433,8 @@ class RTMPServer:
         #     self.handle_flex_shared_object_message(payload)
         elif msg_type_id == RTMP_TYPE_FLEX_MESSAGE:
             invoke_message = self.parse_amf0_invoke_message(rtmp_packet)
+
+            self.logger.info("Processing RTMP_TYPE_INVOKE packet.")
             await self.handle_invoke_message(client_id, invoke_message)
         elif msg_type_id == RTMP_TYPE_DATA:
             await self.handle_amf_data(client_id, rtmp_packet)
@@ -432,11 +442,13 @@ class RTMPServer:
         #     self.handle_amf0_shared_object_message(payload)
         elif msg_type_id == RTMP_TYPE_INVOKE:
             invoke_message = self.parse_amf0_invoke_message(rtmp_packet)
+
+            self.logger.info("Processing RTMP_TYPE_INVOKE packet.")
             await self.handle_invoke_message(client_id, invoke_message)
         # elif msg_type_id == RTMP_TYPE_METADATA:
         #     self.handle_metadata_message(payload)
         else:
-            self.logger.debug("Unsupported RTMP packet type: %s", msg_type_id)
+            self.logger.info("Unsupported RTMP packet type: %s", msg_type_id)
 
     async def handle_video_data(self, client_id, rtmp_packet):
         # Handle video data in an RTMP packet
@@ -481,6 +493,7 @@ class RTMPServer:
                 self.logger.debug("unsupported extension header")
                 return
 
+
         if codec_id in [7, 12, 13]:
             if frame_type == 1 and payload[1] == 0:
                 client_state.avcSequenceHeader = bytearray(payload)
@@ -498,6 +511,17 @@ class RTMPServer:
             client_state.videoCodecName = common.VIDEO_CODEC_NAME[codec_id]
             self.logger.info("Codec Name: %s", client_state.videoCodecName)
 
+
+        # Forward video data to connected players
+        self.logger.info(client_state.Players)
+        if hasattr(client_state, 'Players') and client_state.Players:
+            for player_id in client_state.Players:
+                self.logger.info("Forwarding video packet to player: %s", player_id)
+                await self.writeMessage(player_id, rtmp_packet)
+        else:
+            self.logger.info("No players connected to receive video packets.")
+
+
     async def handle_audio_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
         payload = rtmp_packet['payload']
@@ -507,10 +531,10 @@ class RTMPServer:
         sound_rate = (payload[0] >> 2) & 0x03
 
         if client_state.audioCodec == 0:
-            client_state.audioCodec = sound_format;
-            client_state.audioCodecName = av.AUDIO_CODEC_NAME[sound_format];
-            client_state.audioSampleRate = av.AUDIO_SOUND_RATE[sound_rate];
-            client_state.audioChannels = sound_type + 1;
+            client_state.audioCodec = sound_format
+            client_state.audioCodecName = av.AUDIO_CODEC_NAME[sound_format]
+            client_state.audioSampleRate = av.AUDIO_SOUND_RATE[sound_rate]
+            client_state.audioChannels = sound_type + 1
 
             if sound_format == 4:
                 # Nellymoser 16 kHz
@@ -566,25 +590,54 @@ class RTMPServer:
         client_state.peer_bandwidth = bandwidth
         self.logger.debug("Updated peer bandwidth: %d, Limit type: %d", client_state.peer_bandwidth, limit_type)
 
+    # async def handle_invoke_message(self, client_id, invoke):
+    #     self.logger.info("Invoke command received: %s", invoke['command'])
+    #     if invoke['cmd'] == 'connect':
+    #         self.logger.debug("Received connect invoke")
+    #         await self.handle_connect_command(client_id, invoke)
+    #     elif invoke['cmd'] == 'releaseStream' or invoke['cmd'] == 'FCPublish'or invoke['cmd'] == 'FCUnpublish' or invoke['cmd'] == 'getStreamLength':
+    #         self.logger.debug("Received %s invoke", invoke['cmd'])
+    #         return
+    #     elif invoke['cmd'] == 'createStream':
+    #         self.logger.debug("Received createStream invoke")
+    #         await self.response_createStream(client_id, invoke)
+    #     elif invoke['cmd'] == 'publish':
+    #         self.logger.debug("Received publish invoke")
+    #         await self.handle_publish(client_id, invoke)
+    #     elif invoke['cmd'] == 'play':
+    #         self.logger.debug("Received play invoke")
+    #         await self.handle_onPlay(client_id, invoke)
+    #     # Need to add and support other CMDs.
+    #     else:
+    #         self.logger.info("Unsupported invoke command %s!", invoke['cmd'])
+    # Новая версия метода
     async def handle_invoke_message(self, client_id, invoke):
-        if invoke['cmd'] == 'connect':
-            self.logger.debug("Received connect invoke")
+        # Проверяем наличие ключа 'command' перед использованием
+        if 'command' not in invoke:
+            self.logger.error("Invoke message missing 'command': %s", invoke)
+            raise DisconnectClientException()
+
+        command = invoke['command']
+        self.logger.info("Invoke command received: %s", command)
+
+        # Обработка команды
+        if command == 'connect':
+            self.logger.info("Received connect invoke")
             await self.handle_connect_command(client_id, invoke)
-        elif invoke['cmd'] == 'releaseStream' or invoke['cmd'] == 'FCPublish'or invoke['cmd'] == 'FCUnpublish' or invoke['cmd'] == 'getStreamLength':
-            self.logger.debug("Received %s invoke", invoke['cmd'])
+        elif command in ['releaseStream', 'FCPublish', 'FCUnpublish', 'getStreamLength']:
+            self.logger.info("Received %s invoke", command)
             return
-        elif invoke['cmd'] == 'createStream':
-            self.logger.debug("Received createStream invoke")
+        elif command == 'createStream':
+            self.logger.info("Received createStream invoke")
             await self.response_createStream(client_id, invoke)
-        elif invoke['cmd'] == 'publish':
-            self.logger.debug("Received publish invoke")
+        elif command == 'publish':
+            self.logger.info("Received publish invoke")
             await self.handle_publish(client_id, invoke)
-        elif invoke['cmd'] == 'play':
-            self.logger.debug("Received play invoke")
+        elif command == 'play':
+            self.logger.info("Received play invoke")
             await self.handle_onPlay(client_id, invoke)
-        # Need to add and support other CMDs.
         else:
-            self.logger.info("Unsupported invoke command %s!", invoke['cmd'])
+            self.logger.info("Unsupported invoke command: %s", command)
 
 
 
@@ -609,8 +662,14 @@ class RTMPServer:
         # Извлечение состояния клиента, который публикует поток, на основе его client_id.
         publisher_client_state = self.client_states[publisher_id]
 
+        # Добавляем текущего клиента (плеера) в словарь
+        if client_id not in publisher_client_state.Players:
+            publisher_client_state.Players[client_id] = client_id
+            self.logger.info("Client %s added to Players for stream: %s", client_id, client_state.app)
+
         # Проверка: если у публикующего клиента есть сохраненные метаданные потока.
         if publisher_client_state.metaDataPayload != None:
+            self.logger.info("Sending metadata to client: %s", client_id)
             # Отправка метаданных публикующего клиента клиенту, который запрашивает воспроизведение.
             # Создание объекта AMFBytesIO для записи данных AMF (Action Message Format).
             output = amf.AMFBytesIO()
@@ -626,6 +685,10 @@ class RTMPServer:
 
             # Логирование отправки метаданных
             self.logger.info("Sent metadata to client: %s", client_id)
+
+            # Дополнительное логирование содержимого метаданных
+            self.logger.info("Metadata payload: %s", publisher_client_state.metaDataPayload)
+            self.logger.info("Metadata object: %s", publisher_client_state.metaData)
 
             # Перемещение указателя на начало потока для чтения данных.
             output.seek(0)
@@ -907,12 +970,12 @@ class RTMPServer:
         
         client_state.metaDataPayload = payload
         client_state.metaData = inst['dataObj']
-        client_state.audioSampleRate = int(inst['dataObj']['audiosamplerate']);
+        client_state.audioSampleRate = int(inst['dataObj']['audiosamplerate'])
         client_state.audioChannels = 2 if inst['dataObj']['stereo'] else 1
-        client_state.videoWidth = int(inst['dataObj']['width']);
-        client_state.videoHeight = int(inst['dataObj']['height']);
-        client_state.videoFps = int(inst['dataObj']['framerate']);
-        client_state.Bitrate = int(inst['dataObj']['videodatarate']);
+        client_state.videoWidth = int(inst['dataObj']['width'])
+        client_state.videoHeight = int(inst['dataObj']['height'])
+        client_state.videoFps = int(inst['dataObj']['framerate'])
+        client_state.Bitrate = int(inst['dataObj']['videodatarate'])
         #TODO: handle Meta Data!
 
     def parse_amf0_invoke_message(self, rtmp_packet):
@@ -956,6 +1019,6 @@ class RTMPServer:
             await server.serve_forever()
 
 # Configure logging level and format
-logging.basicConfig(level=LogLevel, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=LogLevel, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', filename="py_log.log", filemode="w")
 rtmp_server = RTMPServer()
 asyncio.run(rtmp_server.start_server())
