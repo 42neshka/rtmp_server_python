@@ -28,11 +28,11 @@ RTMP_TYPE_DATA = 18  # AMF0 Data message (RTMP_PACKET_TYPE_INFO 0x12) - The AMF0
 RTMP_TYPE_SHARED_OBJECT = 19  # AMF0 Shared Object message (RTMP_PACKET_TYPE_INFO 0x12) - The AMF0 Shared Object message carries AMF0-encoded shared object data.
 RTMP_TYPE_INVOKE = 20  # AMF0 Invoke message (RTMP_PACKET_TYPE_SHARED_OBJECT 0x13) - The AMF0 Invoke message is used for remote procedure calls (RPC) or command execution.
 RTMP_TYPE_METADATA = 22  # Metadata message (RTMP_PACKET_TYPE_FLASH_VIDEO 0x16) - The Metadata message carries metadata related to the media stream.
- 
-RTMP_CHUNK_TYPE_0 = 0 # 11-bytes: timestamp(3) + length(3) + stream type(1) + stream id(4)
-RTMP_CHUNK_TYPE_1 = 1 # 7-bytes: delta(3) + length(3) + stream type(1)
-RTMP_CHUNK_TYPE_2 = 2 # 3-bytes: delta(3)
-RTMP_CHUNK_TYPE_3 = 3 # 0-byte
+
+RTMP_CHUNK_TYPE_0 = 0  # 11-bytes: timestamp(3) + length(3) + stream type(1) + stream id(4)
+RTMP_CHUNK_TYPE_1 = 1  # 7-bytes: delta(3) + length(3) + stream type(1)
+RTMP_CHUNK_TYPE_2 = 2  # 3-bytes: delta(3)
+RTMP_CHUNK_TYPE_3 = 3  # 0-byte
 
 # RTMP channel constants
 RTMP_CHANNEL_PROTOCOL = 2
@@ -64,9 +64,11 @@ LiveUsers = {}
 # Dictionary to store player users
 PlayerUsers = {}
 
+
 # Custom exception for disconnecting clients
 class DisconnectClientException(Exception):
     pass
+
 
 # Class representing the state of a connected client
 class ClientState:
@@ -76,7 +78,7 @@ class ClientState:
 
         # RTMP properties
         self.chunk_size = 128  # Default chunk size
-        self.out_chunk_size = 4096 # Default out chunk size
+        self.out_chunk_size = 4096  # Default out chunk size
         self.window_acknowledgement_size = 5000000  # Default window acknowledgement size
         self.peer_bandwidth = 0  # Default peer bandwidth
 
@@ -90,13 +92,13 @@ class ClientState:
 
         self.reader: Optional[asyncio.StreamReader] = None
         self.writer: Optional[asyncio.StreamWriter] = None
-        
+
         self.lastWriteHeaders = dict()
         self.nextChannelId = PROTOCOL_CHANNEL_ID + 1
         self.streams = 0
         self._time0 = time.time()
         self.stream_mode = None
-        
+
         self.streamPath = ''
         self.publishStreamId = 0
         self.publishStreamPath = ''
@@ -130,6 +132,7 @@ class ClientState:
         self.inAckSize = 0
         self.inLastAck = 0
 
+
 # RTMP server class
 class RTMPServer:
     def __init__(self, host='127.0.0.1', port=1935):
@@ -138,7 +141,7 @@ class RTMPServer:
         self.host = host
         self.port = port
         self.client_states = {}
-        
+
         self.logger = logging.getLogger('RTMPServer')
         self.logger.setLevel(LogLevel)
 
@@ -151,14 +154,15 @@ class RTMPServer:
         self.client_states[client_state.id].reader = reader
         self.client_states[client_state.id].writer = writer
 
-        self.client_states[client_state.id].client_ip  = writer.get_extra_info('peername')
+        self.client_states[client_state.id].client_ip = writer.get_extra_info('peername')
         self.logger.info("New client connected: %s", self.client_states[client_state.id].client_ip)
 
         # Perform RTMP handshake
         try:
             await asyncio.wait_for(self.perform_handshake(client_state.id), timeout=5)
         except asyncio.TimeoutError:
-            self.logger.error("Handshake timeout. Closing connection: %s", self.client_states[client_state.id].client_ip)
+            self.logger.error("Handshake timeout. Closing connection: %s",
+                              self.client_states[client_state.id].client_ip)
             await self.disconnect(client_state.id)
             return
 
@@ -166,25 +170,26 @@ class RTMPServer:
         while True:
             try:
                 await self.get_chunk_data(client_state.id)
-                
+
             except asyncio.TimeoutError:
-                self.logger.debug("Connection timeout. Closing connection: %s", self.client_states[client_state.id].client_ip)
+                self.logger.debug("Connection timeout. Closing connection: %s",
+                                  self.client_states[client_state.id].client_ip)
                 break
-            
+
             except DisconnectClientException:
                 self.logger.debug("Disconnecting client: %s", self.client_states[client_state.id].client_ip)
                 break
-            
+
             except ConnectionAbortedError as e:
                 self.logger.debug("Connection aborted by client: %s", self.client_states[client_state.id].client_ip)
                 break
-        
+
             except Exception as e:
                 self.logger.error("An error occurred: %s", str(e))
                 break
 
         await self.disconnect(client_state.id)
-        
+
     async def disconnect(self, client_id):
         # Close the client connection
         client_state = self.client_states[client_id]
@@ -209,7 +214,6 @@ class RTMPServer:
             # Handle the exception here, perform other tasks, or log the error.
             self.logger.error(f"Error occurred while disconnecting client: {e}")
 
-
     async def get_chunk_data(self, client_id):
         # Read a chunk of data from the client
         client_state = self.client_states[client_id]
@@ -219,29 +223,30 @@ class RTMPServer:
             chunk_data = await client_state.reader.readexactly(1)
             if not chunk_data:
                 raise DisconnectClientException()
-            
+
             cid = chunk_data[0] & 0b00111111
-            
+
             # Chunk Basic Header field may be 1, 2, or 3 bytes, depending on the chunk stream ID.
-            if cid == 0: # ChunkBasicHeader: 2
-                chunk_data += await client_state.reader.readexactly(1) # Need read 1 more packet
-                cid = 64 + chunk_data[1] # Chunk stream IDs 64-319 can be encoded in the 2-byte form of the header
-            elif cid == 1: #ChunkBasicHeader: 3
-                chunk_data += await client_state.reader.readexactly(2) # Need read 2 more packets
-                cid = (64 + chunk_data[1] + chunk_data[2]) << 8 # Chunk stream IDs 64-65599 can be encoded in the 3-byte version of this field
+            if cid == 0:  # ChunkBasicHeader: 2
+                chunk_data += await client_state.reader.readexactly(1)  # Need read 1 more packet
+                cid = 64 + chunk_data[1]  # Chunk stream IDs 64-319 can be encoded in the 2-byte form of the header
+            elif cid == 1:  # ChunkBasicHeader: 3
+                chunk_data += await client_state.reader.readexactly(2)  # Need read 2 more packets
+                cid = (64 + chunk_data[1] + chunk_data[
+                    2]) << 8  # Chunk stream IDs 64-65599 can be encoded in the 3-byte version of this field
 
             chunk_full = bytearray(chunk_data)
             fmt = (chunk_data[0] & 0b11000000) >> 6
 
             if not cid in client_state.IncomingPackets:
                 client_state.IncomingPackets[cid] = self.createPacket(cid, fmt)
-            
+
             # I'm afraid I suffer from memory leaks. :D
             client_state.IncomingPackets[cid]['last_received_time'] = time.time()
             self.clearPayloadIfTimeout(client_id, 120)
 
             header_data = bytearray()
-             # Get Message Timestamp for FMT 0, 1, 2
+            # Get Message Timestamp for FMT 0, 1, 2
             if fmt <= RTMP_CHUNK_TYPE_2:
                 timestamp_bytes = await client_state.reader.readexactly(3)
                 header_data += timestamp_bytes
@@ -259,41 +264,45 @@ class RTMPServer:
                 client_state.IncomingPackets[cid]['payload'] = bytearray()
                 del length_bytes
                 del type_bytes
-            
+
             # Get Message Stream ID for FMT 0
-            if fmt == RTMP_CHUNK_TYPE_0: 
+            if fmt == RTMP_CHUNK_TYPE_0:
                 streamID_bytes = await client_state.reader.readexactly(4)
                 header_data += streamID_bytes
                 client_state.IncomingPackets[cid]['msg_stream_id'] = int.from_bytes(streamID_bytes, byteorder='big')
                 del streamID_bytes
-            
+
             chunk_full += header_data
-            
+
             # Set Main Packet Headers and payload_length for FMT 0, 1
-            if fmt <= RTMP_CHUNK_TYPE_1: 
+            if fmt <= RTMP_CHUNK_TYPE_1:
                 # client_state.IncomingPackets[cid]['basic_header'] = chunk_data
                 # client_state.IncomingPackets[cid]['header'] = header_data
                 payload_length = client_state.IncomingPackets[cid]['payload_length']
 
             # Calculate Payload Remaining length for FMT 2,3 
             if fmt > RTMP_CHUNK_TYPE_1:
-                payload_length = client_state.IncomingPackets[cid]['payload_length'] - len(client_state.IncomingPackets[cid]['payload'])
+                payload_length = client_state.IncomingPackets[cid]['payload_length'] - len(
+                    client_state.IncomingPackets[cid]['payload'])
 
             # Check message type id
             if RTMP_TYPE_METADATA < client_state.IncomingPackets[cid]['msg_type_id']:
                 self.logger.error("Invalid Packet Type: %s", str(client_state.IncomingPackets[cid]['msg_type_id']))
                 raise DisconnectClientException()
-            
+
             # Messages with type=3 should never have ext timestamp field according to standard. However that's not always the case in real life
-            if client_state.IncomingPackets[cid]['timestamp'] == 0xffffff:  # Max Value check (16777215), Need to read extended timestamp
+            if client_state.IncomingPackets[cid][
+                'timestamp'] == 0xffffff:  # Max Value check (16777215), Need to read extended timestamp
                 extended_timestamp_bytes = await client_state.reader.readexactly(4)
                 chunk_full += extended_timestamp_bytes
-                client_state.IncomingPackets[cid]['extended_timestamp'] = int.from_bytes(extended_timestamp_bytes, byteorder='big')
+                client_state.IncomingPackets[cid]['extended_timestamp'] = int.from_bytes(extended_timestamp_bytes,
+                                                                                         byteorder='big')
                 del extended_timestamp_bytes
 
             client_state.inAckSize += len(chunk_full)
 
-            self.logger.debug(f"FMT: {fmt}, CID: {cid}, Message Length: {payload_length}, Timestamp: {client_state.IncomingPackets[cid]['timestamp']}")
+            self.logger.debug(
+                f"FMT: {fmt}, CID: {cid}, Message Length: {payload_length}, Timestamp: {client_state.IncomingPackets[cid]['timestamp']}")
 
             if payload_length > 0:
                 payload_length = min(client_state.chunk_size, payload_length)
@@ -303,14 +312,15 @@ class RTMPServer:
                 del payload
             else:
                 # I'm not sure. In some cases, I may need to disconnect the client, while in other cases, I won't. I will ignore the issue and proceed to the next packet, but I will clear the payload. If invalid data continues, it may result in a disconnection when processing subsequent packets.
-                self.logger.error(f"Invalid Length (ZERO!), FMT: {fmt}, CID: {cid}, Message Length: {payload_length}, Timestamp: {client_state.IncomingPackets[cid]['timestamp']}")
+                self.logger.error(
+                    f"Invalid Length (ZERO!), FMT: {fmt}, CID: {cid}, Message Length: {payload_length}, Timestamp: {client_state.IncomingPackets[cid]['timestamp']}")
                 client_state.IncomingPackets[cid]['payload'] = bytearray()
                 return
-                
+
             if client_state.inAckSize >= 0xF0000000:
                 client_state.inAckSize = 0
                 client_state.inLastAck = 0
-            
+
             # Delete some variables for fun!
             del chunk_data
             del chunk_full
@@ -335,7 +345,8 @@ class RTMPServer:
                 del rtmp_packet
 
             # Send ACK If needed!
-            if(client_state.window_acknowledgement_size > 0 and client_state.inAckSize - client_state.inLastAck >= client_state.window_acknowledgement_size):
+            if (
+                    client_state.window_acknowledgement_size > 0 and client_state.inAckSize - client_state.inLastAck >= client_state.window_acknowledgement_size):
                 client_state.inLastAck = client_state.inAckSize
                 await self.send_ack(client_id, client_state.inAckSize)
 
@@ -371,7 +382,7 @@ class RTMPServer:
     async def perform_handshake(self, client_id):
         # Perform the RTMP handshake with the client
         client_state = self.client_states[client_id]
-        
+
         c0_data = await client_state.reader.readexactly(1)
         if c0_data != bytes([0x03]) and c0_data != bytes([0x06]):
             client_state.writer.close()
@@ -493,7 +504,6 @@ class RTMPServer:
                 self.logger.debug("unsupported extension header")
                 return
 
-
         if codec_id in [7, 12, 13]:
             if frame_type == 1 and payload[1] == 0:
                 client_state.avcSequenceHeader = bytearray(payload)
@@ -511,7 +521,6 @@ class RTMPServer:
             client_state.videoCodecName = common.VIDEO_CODEC_NAME[codec_id]
             self.logger.info("Codec Name: %s", client_state.videoCodecName)
 
-
         # Forward video data to connected players
         self.logger.info(client_state.Players)
         if hasattr(client_state, 'Players') and client_state.Players:
@@ -520,7 +529,6 @@ class RTMPServer:
                 await self.writeMessage(player_id, rtmp_packet)
         else:
             self.logger.info("No players connected to receive video packets.")
-
 
     async def handle_audio_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
@@ -568,10 +576,10 @@ class RTMPServer:
     def handle_chunk_size_message(self, client_id, payload):
         # Handle Chunk Size message
         new_chunk_size = int.from_bytes(payload, byteorder='big')
-        if(MAX_CHUNK_SIZE < new_chunk_size):
+        if (MAX_CHUNK_SIZE < new_chunk_size):
             self.logger.debug("Chunk size is too big!", new_chunk_size)
             raise DisconnectClientException()
-        
+
         self.client_states[client_id].chunk_size = new_chunk_size
         self.logger.debug("Updated chunk size: %d", self.client_states[client_id].chunk_size)
 
@@ -638,9 +646,6 @@ class RTMPServer:
             await self.handle_onPlay(client_id, invoke)
         else:
             self.logger.info("Unsupported invoke command: %s", command)
-
-
-
 
     async def handle_onPlay(self, client_id, invoke):
         # Получение состояния клиента (объекта ClientState), связанного с данным client_id.
@@ -709,8 +714,6 @@ class RTMPServer:
             # Отправка RTMP-сообщения клиенту, запросившему воспроизведение.
             await self.writeMessage(client_id, response)
 
-
-
     async def handle_publish(self, client_id, invoke):
         # Извлечение состояния клиента (объекта ClientState), соответствующего заданному client_id.
         client_state = self.client_states[client_id]
@@ -775,25 +778,22 @@ class RTMPServer:
             "NetStream.Publish.Start", f"{client_state.publishStreamPath} is now published."
         )
 
-
-
-
     async def sendStatusMessage(self, client_id, sid, level, code, description):
         response = common.Command(
-        name='onStatus',
-        id=sid,
-        tm=self.relativeTime(client_id),
-        args=[
-            amf.Object(
-                level=level,
-                code=code,
-                description=description,
-                details=None)])
-        
+            name='onStatus',
+            id=sid,
+            tm=self.relativeTime(client_id),
+            args=[
+                amf.Object(
+                    level=level,
+                    code=code,
+                    description=description,
+                    details=None)])
+
         message = response.toMessage()
         self.logger.debug("Sending onStatus response!")
         await self.writeMessage(client_id, message)
-        
+
     async def response_createStream(self, client_id, invoke):
         client_state = self.client_states[client_id]
         client_state.streams = client_state.streams + 1
@@ -816,7 +816,7 @@ class RTMPServer:
         if client_state.app == '':
             self.logger.warning("Empty 'app' attribute. Disconnecting client: %s", client_state.client_ip)
             raise DisconnectClientException()
-        
+
         if hasattr(invoke['cmdData'], 'tcUrl'):
             client_state.tcUrl = invoke['cmdData'].tcUrl
 
@@ -829,8 +829,9 @@ class RTMPServer:
         if hasattr(invoke['cmdData'], 'objectEncoding'):
             client_state.objectEncoding = invoke['cmdData'].objectEncoding
 
-        self.logger.info("App: %s, tcUrl: %s, swfUrl: %s, flashVer: %s", client_state.app, client_state.tcUrl, client_state.swfUrl, client_state.flashVer)
-        
+        self.logger.info("App: %s, tcUrl: %s, swfUrl: %s, flashVer: %s", client_state.app, client_state.tcUrl,
+                         client_state.swfUrl, client_state.flashVer)
+
         await self.send_window_ack(client_id, 5000000)
         await self.set_chunk_size(client_id, client_state.out_chunk_size)
         await self.set_peer_bandwidth(client_id, 5000000, 2)
@@ -842,7 +843,6 @@ class RTMPServer:
         # self.logger.info("Sending data: %s", data)
         client_state.writer.write(data)
         await client_state.writer.drain()
-
 
     async def send_window_ack(self, client_id, size):
         rtmp_buffer = bytes.fromhex("02000000000004050000000000000000")
@@ -881,7 +881,7 @@ class RTMPServer:
         # await self.send(client_id, rtmpBuffer) 
         # Just Ignore!
         return False
-        
+
     async def respond_connect(self, client_id, tid):
         client_state = self.client_states[client_id]
         response = common.Command()
@@ -892,9 +892,9 @@ class RTMPServer:
             code='NetConnection.Connect.Success',
             description='Connection succeeded.',
             fmsVer='MasterStream/8,2',
-            capabilities = 31,
-            objectEncoding = client_state.objectEncoding)
-        
+            capabilities=31,
+            objectEncoding=client_state.objectEncoding)
+
         response.setArg(arg)
         message = response.toMessage()
         self.logger.debug("Sending connect response!")
@@ -912,7 +912,7 @@ class RTMPServer:
             client_state.lastWriteHeaders[message.streamId] = header
         if message.type < message.AUDIO:
             header = common.Header(PROTOCOL_CHANNEL_ID)
-        
+
         # now figure out the header data bytes
         if header.streamId != message.streamId or header.time == 0 or message.time <= header.time:
             header.streamId, header.type, header.size, header.time, header.delta = message.streamId, message.type, message.size, message.time, message.time
@@ -923,7 +923,7 @@ class RTMPServer:
         else:
             header.time, header.delta = message.time, message.time - header.time
             control = common.Header.TIME
-        
+
         hdr = common.Header(
             channel=header.channel,
             time=header.delta if control in (
@@ -957,17 +957,17 @@ class RTMPServer:
         inst['packet'] = rtmp_packet
         inst['cmd'] = amfReader.read()  # first field is command name
         if inst['cmd'] == '@setDataFrame':
-            inst['type'] = amfReader.read() # onMetaData
+            inst['type'] = amfReader.read()  # onMetaData
             self.logger.debug("AMF Data type: %s", inst['type'])
             if inst['type'] != 'onMetaData':
                 return
-            
+
             inst['dataObj'] = amfReader.read()  # third is obj data
-            if(inst['dataObj'] != None):
-                    self.logger.debug("Command Data %s", inst['dataObj'])
+            if (inst['dataObj'] != None):
+                self.logger.debug("Command Data %s", inst['dataObj'])
         else:
             self.logger.warning("Unsupported RTMP_TYPE_DATA cmd, CMD: %s", inst['cmd'])
-        
+
         client_state.metaDataPayload = payload
         client_state.metaData = inst['dataObj']
         client_state.audioSampleRate = int(inst['dataObj']['audiosamplerate'])
@@ -976,7 +976,7 @@ class RTMPServer:
         client_state.videoHeight = int(inst['dataObj']['height'])
         client_state.videoFps = int(inst['dataObj']['framerate'])
         client_state.Bitrate = int(inst['dataObj']['videodatarate'])
-        #TODO: handle Meta Data!
+        # TODO: handle Meta Data!
 
     def parse_amf0_invoke_message(self, rtmp_packet):
         offset = 1 if rtmp_packet['header']['type'] == RTMP_TYPE_FLEX_MESSAGE else 0
@@ -986,13 +986,14 @@ class RTMPServer:
         inst['type'] = rtmp_packet['header']['type']
         inst['time'] = rtmp_packet['header']['timestamp']
         inst['packet'] = rtmp_packet
-        
+
         try:
             inst['cmd'] = amfReader.read()  # first field is command name
-            if rtmp_packet['header']['type'] == RTMP_TYPE_FLEX_MESSAGE or rtmp_packet['header']['type'] == RTMP_TYPE_INVOKE:
+            if rtmp_packet['header']['type'] == RTMP_TYPE_FLEX_MESSAGE or rtmp_packet['header'][
+                'type'] == RTMP_TYPE_INVOKE:
                 inst['id'] = amfReader.read()  # second field *may* be message id
                 inst['cmdData'] = amfReader.read()  # third is command data
-                if(inst['cmdData'] != None):
+                if (inst['cmdData'] != None):
                     self.logger.debug("Command Data %s", vars(inst['cmdData']))
             else:
                 inst['id'] = 0
@@ -1004,7 +1005,7 @@ class RTMPServer:
 
         self.logger.debug("Command %s", inst)
         return inst
-    
+
     def relativeTime(self, client_id):
         return int(1000 * (time.time() - self.client_states[client_id]._time0))
 
@@ -1018,7 +1019,9 @@ class RTMPServer:
         async with server:
             await server.serve_forever()
 
+
 # Configure logging level and format
-logging.basicConfig(level=LogLevel, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', filename="py_log.log", filemode="w")
+logging.basicConfig(level=LogLevel, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                    filename="py_log.log", filemode="w")
 rtmp_server = RTMPServer()
 asyncio.run(rtmp_server.start_server())

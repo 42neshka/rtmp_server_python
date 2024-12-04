@@ -4,11 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="47ea6058-434d-4f38-a015-9a796f2192bd" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/python-rtmp-server.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/python-rtmp-server.iml" afterDir="false" />
+    <list default="true" id="47ea6058-434d-4f38-a015-9a796f2192bd" name="Changes" comment="Вывел всё логирование в отдельный файл, так как в консоли неудобно.&#10;1. get_chunk_data&#10;   - добавил переменную payload_length&#10;2. handle_rtmp_packet&#10;   - добавил 4 логера&#10;3. handle_video_data&#10;   - добавил блок отправки пакета клиенту&#10;4. handle_invoke_message&#10;   - переписал метод&#10;5. handle_onPlay&#10;   - добавил 3 логера&#10;   - блок добавления Player в словарь">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/installer.py" beforeDir="false" afterPath="$PROJECT_DIR$/installer.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/rtmp_original.py" beforeDir="false" afterPath="$PROJECT_DIR$/rtmp_original.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -61,6 +59,19 @@
       <option name="presentableId" value="Default" />
       <updated>1733292277887</updated>
     </task>
+    <task id="LOCAL-00001" summary="Вывел всё логирование в отдельный файл, так как в консоли неудобно.&#10;1. get_chunk_data&#10;   - добавил переменную payload_length&#10;2. handle_rtmp_packet&#10;   - добавил 4 логера&#10;3. handle_video_data&#10;   - добавил блок отправки пакета клиенту&#10;4. handle_invoke_message&#10;   - переписал метод&#10;5. handle_onPlay&#10;   - добавил 3 логера&#10;   - блок добавления Player в словарь">
+      <option name="closed" value="true" />
+      <created>1733324686463</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1733324686463</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
     <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="Вывел всё логирование в отдельный файл, так как в консоли неудобно.&#10;1. get_chunk_data&#10;   - добавил переменную payload_length&#10;2. handle_rtmp_packet&#10;   - добавил 4 логера&#10;3. handle_video_data&#10;   - добавил блок отправки пакета клиенту&#10;4. handle_invoke_message&#10;   - переписал метод&#10;5. handle_onPlay&#10;   - добавил 3 логера&#10;   - блок добавления Player в словарь" />
+    <option name="LAST_COMMIT_MESSAGE" value="Вывел всё логирование в отдельный файл, так как в консоли неудобно.&#10;1. get_chunk_data&#10;   - добавил переменную payload_length&#10;2. handle_rtmp_packet&#10;   - добавил 4 логера&#10;3. handle_video_data&#10;   - добавил блок отправки пакета клиенту&#10;4. handle_invoke_message&#10;   - переписал метод&#10;5. handle_onPlay&#10;   - добавил 3 логера&#10;   - блок добавления Player в словарь" />
   </component>
 </project>
