@@ -74,7 +74,7 @@ class DisconnectClientException(Exception):
 class ClientState:
     def __init__(self):
         self.id = str(uuid.uuid4())
-        self.client_ip = '127.0.0.1'
+        self.client_ip = '0.0.0.0'
 
         # RTMP properties
         self.chunk_size = 128  # Default chunk size
@@ -419,7 +419,7 @@ class RTMPServer:
         msg_type_id = rtmp_packet["header"]["type"]
         payload = rtmp_packet["payload"]
 
-        self.logger.info("Received RTMP packet: type=%s, payload=%s", msg_type_id, payload)
+        self.logger.debug("Received RTMP packet: type=%s, payload=%s", msg_type_id, payload)
 
         # self.logger.debug("Received RTMP packet:")
         # self.logger.debug("  RTMP Packet Type: %s", msg_type_id)
@@ -522,9 +522,9 @@ class RTMPServer:
             self.logger.info("Codec Name: %s", client_state.videoCodecName)
 
         # Forward video data to connected players
-        self.logger.info(client_state.Players)
-        if hasattr(client_state, 'Players') and client_state.Players:
-            for player_id in client_state.Players:
+        self.logger.info(f"PlayerUsers: {client_state.PlayerUsers}")
+        if client_state.PlayerUsers:
+            for player_id in client_state.PlayerUsers:
                 self.logger.info("Forwarding video packet to player: %s", player_id)
                 await self.writeMessage(player_id, rtmp_packet)
         else:
@@ -598,6 +598,7 @@ class RTMPServer:
         client_state.peer_bandwidth = bandwidth
         self.logger.debug("Updated peer bandwidth: %d, Limit type: %d", client_state.peer_bandwidth, limit_type)
 
+
     # async def handle_invoke_message(self, client_id, invoke):
     #     self.logger.info("Invoke command received: %s", invoke['command'])
     #     if invoke['cmd'] == 'connect':
@@ -618,15 +619,17 @@ class RTMPServer:
     #     # Need to add and support other CMDs.
     #     else:
     #         self.logger.info("Unsupported invoke command %s!", invoke['cmd'])
+
+
     # Новая версия метода
     async def handle_invoke_message(self, client_id, invoke):
         # Проверяем наличие ключа 'command' перед использованием
-        if 'command' not in invoke:
-            self.logger.error("Invoke message missing 'command': %s", invoke)
+        if 'cmd' not in invoke:
+            self.logger.error("Invoke message missing 'cmd': %s", invoke)
             raise DisconnectClientException()
 
-        command = invoke['command']
-        self.logger.info("Invoke command received: %s", command)
+        command = invoke['cmd']
+        self.logger.info("Invoke command received: %s", command.upper())
 
         # Обработка команды
         if command == 'connect':
@@ -668,8 +671,8 @@ class RTMPServer:
         publisher_client_state = self.client_states[publisher_id]
 
         # Добавляем текущего клиента (плеера) в словарь
-        if client_id not in publisher_client_state.Players:
-            publisher_client_state.Players[client_id] = client_id
+        if client_id not in publisher_client_state.PlayerUsers:
+            publisher_client_state.PlayerUsers[client_id] = client_id
             self.logger.info("Client %s added to Players for stream: %s", client_id, client_state.app)
 
         # Проверка: если у публикующего клиента есть сохраненные метаданные потока.

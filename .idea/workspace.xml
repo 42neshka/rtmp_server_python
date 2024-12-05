@@ -4,9 +4,10 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="47ea6058-434d-4f38-a015-9a796f2192bd" name="Changes" comment="Вывел всё логирование в отдельный файл, так как в консоли неудобно.&#10;1. get_chunk_data&#10;   - добавил переменную payload_length&#10;2. handle_rtmp_packet&#10;   - добавил 4 логера&#10;3. handle_video_data&#10;   - добавил блок отправки пакета клиенту&#10;4. handle_invoke_message&#10;   - переписал метод&#10;5. handle_onPlay&#10;   - добавил 3 логера&#10;   - блок добавления Player в словарь">
+    <list default="true" id="47ea6058-434d-4f38-a015-9a796f2192bd" name="Changes" comment="ctrl + alt + L">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/installer.py" beforeDir="false" afterPath="$PROJECT_DIR$/installer.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/rtmp_original.py" beforeDir="false" afterPath="$PROJECT_DIR$/rtmp_original.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -36,13 +37,14 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;Errors&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python.rtmp_original.executor": "Debug",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "git-widget-placeholder": "main",
+    "settings.editor.selected.configurable": "preferences.keymap"
   }
-}</component>
+}]]></component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -67,11 +69,20 @@
       <option name="project" value="LOCAL" />
       <updated>1733324686463</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="ctrl + alt + L">
+      <option name="closed" value="true" />
+      <created>1733326044595</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1733326044595</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="Вывел всё логирование в отдельный файл, так как в консоли неудобно.&#10;1. get_chunk_data&#10;   - добавил переменную payload_length&#10;2. handle_rtmp_packet&#10;   - добавил 4 логера&#10;3. handle_video_data&#10;   - добавил блок отправки пакета клиенту&#10;4. handle_invoke_message&#10;   - переписал метод&#10;5. handle_onPlay&#10;   - добавил 3 логера&#10;   - блок добавления Player в словарь" />
-    <option name="LAST_COMMIT_MESSAGE" value="Вывел всё логирование в отдельный файл, так как в консоли неудобно.&#10;1. get_chunk_data&#10;   - добавил переменную payload_length&#10;2. handle_rtmp_packet&#10;   - добавил 4 логера&#10;3. handle_video_data&#10;   - добавил блок отправки пакета клиенту&#10;4. handle_invoke_message&#10;   - переписал метод&#10;5. handle_onPlay&#10;   - добавил 3 логера&#10;   - блок добавления Player в словарь" />
+    <MESSAGE value="ctrl + alt + L" />
+    <option name="LAST_COMMIT_MESSAGE" value="ctrl + alt + L" />
   </component>
 </project>
