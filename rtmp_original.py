@@ -190,29 +190,69 @@ class RTMPServer:
 
         await self.disconnect(client_state.id)
 
+    # async def disconnect(self, client_id):
+    #     # Close the client connection
+    #     client_state = self.client_states[client_id]
+    #
+    #     if client_state.stream_mode == 'live':
+    #         # Finish Stream for players!
+    #         print("NEED DISCONNECT Players!")
+    #
+    #     client_ip = client_state.client_ip
+    #     for app in LiveUsers:
+    #         if LiveUsers[app]['client_id'] == client_id:
+    #             del LiveUsers[app]
+    #             break
+    #
+    #     client_state.IncomingPackets.clear()
+    #
+    #     del self.client_states[client_id]
+    #     try:
+    #         client_state.writer.close()
+    #         await client_state.writer.wait_closed()
+    #         self.logger.info("Client disconnected: %s", client_ip)
+    #     except Exception as e:
+    #         # Handle the exception here, perform other tasks, or log the error.
+    #         self.logger.error(f"Error occurred while disconnecting client: {e}")
+
     async def disconnect(self, client_id):
-        # Close the client connection
-        client_state = self.client_states[client_id]
-        if client_state.stream_mode == 'live':
-            # Finish Stream for players!
-            print("NEED DISCONNECT Players!")
+        client_state = self.client_states.get(client_id)
 
-        client_ip = client_state.client_ip
-        for app in LiveUsers:
-            if LiveUsers[app]['client_id'] == client_id:
-                del LiveUsers[app]
-                break
+        # Удаляем из LiveUsers, если клиент является издателем
+        if client_state and client_state.app in LiveUsers:
+            if client_id in LiveUsers[client_state.app]:
+                del LiveUsers[client_state.app][client_id]
+                self.logger.info("Stream unpublished for app: %s, client: %s", client_state.app, client_id)
 
-        client_state.IncomingPackets.clear()
+            # Если больше нет стримов для данного приложения, удаляем ключ
+            if not LiveUsers[client_state.app]:
+                del LiveUsers[client_state.app]
 
-        del self.client_states[client_id]
-        try:
-            client_state.writer.close()
-            await client_state.writer.wait_closed()
-            self.logger.info("Client disconnected: %s", client_ip)
-        except Exception as e:
-            # Handle the exception here, perform other tasks, or log the error.
-            self.logger.error(f"Error occurred while disconnecting client: {e}")
+        # Удаляем из Players, если клиент является плеером
+        if client_state and client_state.app in LiveUsers:
+            try:
+                publisher_id = next(iter(LiveUsers[client_state.app].keys()))
+                publisher_client_state = self.client_states[publisher_id]
+                if hasattr(publisher_client_state, "Players") and client_id in publisher_client_state.Players:
+                    del publisher_client_state.Players[client_id]
+                    self.logger.info("Player removed from Players: %s", client_id)
+            except (StopIteration, KeyError):
+                self.logger.warning("No publisher found for app: %s during disconnect", client_state.app)
+
+        # Удаляем из PlayerUsers
+        if client_state and client_state.app in PlayerUsers:
+            if client_id in PlayerUsers[client_state.app]:
+                del PlayerUsers[client_state.app][client_id]
+                self.logger.info("Player removed from PlayerUsers: %s", client_id)
+
+            # Если больше нет игроков для данного приложения, удаляем ключ
+            if not PlayerUsers[client_state.app]:
+                del PlayerUsers[client_state.app]
+
+        # Удаляем состояние клиента
+        if client_id in self.client_states:
+            del self.client_states[client_id]
+            self.logger.info("Client state removed for client: %s", client_id)
 
     async def get_chunk_data(self, client_id):
         # Read a chunk of data from the client
@@ -522,9 +562,9 @@ class RTMPServer:
             self.logger.info("Codec Name: %s", client_state.videoCodecName)
 
         # Forward video data to connected players
-        self.logger.info(f"PlayerUsers: {client_state.PlayerUsers}")
-        if client_state.PlayerUsers:
-            for player_id in client_state.PlayerUsers:
+        self.logger.info(f"PlayerUsers: {PlayerUsers}")
+        if PlayerUsers:
+            for player_id in PlayerUsers:
                 self.logger.info("Forwarding video packet to player: %s", player_id)
                 await self.writeMessage(player_id, rtmp_packet)
         else:
@@ -653,27 +693,49 @@ class RTMPServer:
     async def handle_onPlay(self, client_id, invoke):
         # Получение состояния клиента (объекта ClientState), связанного с данным client_id.
         client_state = self.client_states[client_id]
+        self.logger.info(f"CLIENNT ID: {client_id}")
 
         # Проверка: существует ли поток, связанный с приложением клиента (client_state.app).
         # Если нет, то поток не существует, клиент получает сообщение об ошибке, и соединение разрывается.
-        if not client_state.app in LiveUsers:
-            self.logger.warning("Stream not exists to play!")  # Логирование предупреждения об отсутствии потока.
-            await self.sendStatusMessage(
-                client_id, client_state.publishStreamId, "error",
-                "NetStream.Play.BadName", "Stream not exists"
-            )  # Отправка клиенту сообщения об ошибке.
-            raise DisconnectClientException()  # Исключение для разрыва соединения с клиентом.
+        # if not client_state.app in LiveUsers:
+        #     self.logger.warning("Stream not exists to play!")  # Логирование предупреждения об отсутствии потока.
+            # await self.sendStatusMessage(
+            #     client_id, client_state.publishStreamId, "error",
+            #     "NetStream.Play.BadName", "Stream not exists"
+            # )  # Отправка клиенту сообщения об ошибке.
+            # raise DisconnectClientException()  # Исключение для разрыва соединения с клиентом.
+
+        # Проверяем, существует ли поток
+        if client_state.app not in LiveUsers or not LiveUsers[client_state.app]:
+            self.logger.warning("No active streams found for app: %s", client_state.app)
+            raise DisconnectClientException()
 
         # Получение идентификатора клиента, который публикует поток (из LiveUsers).
-        publisher_id = LiveUsers[client_state.app]['client_id']
-
+        # publisher_id = LiveUsers[client_state.app]['client_id']
+        publisher_id = next(iter(LiveUsers[client_state.app].keys()), None)
+        if not publisher_id:
+            self.logger.warning("No publisher found for app: %s", client_state.app)
+            raise DisconnectClientException()
         # Извлечение состояния клиента, который публикует поток, на основе его client_id.
         publisher_client_state = self.client_states[publisher_id]
 
-        # Добавляем текущего клиента (плеера) в словарь
-        if client_id not in publisher_client_state.PlayerUsers:
-            publisher_client_state.PlayerUsers[client_id] = client_id
-            self.logger.info("Client %s added to Players for stream: %s", client_id, client_state.app)
+        # Добавляем клиента в PlayerUsers
+        if client_state.app not in PlayerUsers:
+            PlayerUsers[client_state.app] = {}
+
+        PlayerUsers[client_state.app][client_id] = {
+            "client_id": client_id,
+            "stream_id": invoke['packet']['header']['stream_id']
+        }
+        self.logger.info("Player added to PlayerUsers: %s", PlayerUsers)
+
+        # Инициализируем Players, если еще не создано
+        if not hasattr(publisher_client_state, "Players"):
+            publisher_client_state.Players = {}
+
+        # Добавляем текущего клиента (плеера) в Players
+        publisher_client_state.Players[client_id] = client_state
+        self.logger.info("Player added to Players: %s for stream: %s", client_id, client_state.app)
 
         # Проверка: если у публикующего клиента есть сохраненные метаданные потока.
         if publisher_client_state.metaDataPayload != None:
@@ -716,6 +778,7 @@ class RTMPServer:
 
             # Отправка RTMP-сообщения клиенту, запросившему воспроизведение.
             await self.writeMessage(client_id, response)
+        self.logger.info("Client %s started playing stream: %s", client_id, client_state.app)
 
     async def handle_publish(self, client_id, invoke):
         # Извлечение состояния клиента (объекта ClientState), соответствующего заданному client_id.
@@ -723,7 +786,9 @@ class RTMPServer:
 
         # Определение режима стрима (по умолчанию 'live'). Если в аргументах `invoke['args']` больше одного элемента, используется второй аргумент.
         # Режим может быть: 'live', 'record', 'append'.
-        client_state.stream_mode = 'live' if len(invoke['args']) < 2 else invoke['args'][1]  # live, record, append
+        # client_state.stream_mode = 'live' if len(invoke['args']) < 2 else invoke['args'][1]  # live, record, append
+        # УПРОЩЕННАЯ ВЕРСИЯ ДЛЯ ДЕМО
+        client_state.stream_mode = 'live'
 
         # Установка пути потока (обычно это ключ потока), берется из первого аргумента `invoke['args']`.
         client_state.streamPath = invoke['args'][0]
@@ -731,8 +796,13 @@ class RTMPServer:
         # Получение идентификатора потока из заголовка пакета (StreamID).
         client_state.publishStreamId = int(invoke['packet']['header']['stream_id'])
 
+        # На всякий случай
+        # if client_state.app not in LiveUsers:
+        #     LiveUsers[client_state.app] = {}
+
         # Формирование полного пути публикации, состоящего из имени приложения (app) и ключа потока (streamPath).
         # Удаляет все параметры (например, ?key=value) из пути.
+        self.logger.info(f"app: {client_state.app}")
         client_state.publishStreamPath = "/" + client_state.app + "/" + client_state.streamPath.split("?")[0]
 
         # Проверка: если путь потока не задан или пустой, отправляется ошибка клиенту и соединение разрывается.
@@ -748,6 +818,9 @@ class RTMPServer:
         if client_state.stream_mode == 'live':
             # Если поток с таким приложением уже публикуется, отправляется ошибка клиенту и соединение разрывается.
             if LiveUsers.get(client_state.app) is not None:
+                self.logger.info(f"LiveUsers: {LiveUsers}")
+                self.logger.info(f"PlayerUsers: {PlayerUsers}")
+                self.logger.info(f"Player: {client_state.Players}")
                 self.logger.warning("Stream already publishing!")  # Логирование предупреждения о существующем потоке.
                 await self.sendStatusMessage(
                     client_id, client_state.publishStreamId, "error",

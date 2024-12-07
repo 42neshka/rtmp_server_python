@@ -5,8 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="47ea6058-434d-4f38-a015-9a796f2192bd" name="Changes" comment="ctrl + alt + L">
+      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/python-rtmp-server.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/python-rtmp-server.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/installer.py" beforeDir="false" afterPath="$PROJECT_DIR$/installer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/rtmp_original.py" beforeDir="false" afterPath="$PROJECT_DIR$/rtmp_original.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -23,12 +24,12 @@
     &quot;assignee&quot;: &quot;42neshka&quot;
   }
 }</component>
-  <component name="GithubPullRequestsUISettings">{
-  &quot;selectedUrlAndAccountId&quot;: {
-    &quot;url&quot;: &quot;https://github.com/42neshka/rtmp_server_python.git&quot;,
-    &quot;accountId&quot;: &quot;1cca506b-2ace-4e2f-be38-da84e835baad&quot;
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/42neshka/rtmp_server_python.git",
+    "accountId": "7c37a0fa-aa05-437b-b308-17ef0c4741b3"
   }
-}</component>
+}]]></component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 4
 }</component>
@@ -42,7 +43,7 @@
     "Python.rtmp_original.executor": "Debug",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "git-widget-placeholder": "main",
-    "settings.editor.selected.configurable": "preferences.keymap"
+    "settings.editor.selected.configurable": "Errors"
   }
 }]]></component>
   <component name="SharedIndexes">
