@@ -9,6 +9,8 @@ import time
 import handshake
 import uuid
 
+from RtmpMessage import RTMPMessage
+
 # Config
 LogLevel = logging.INFO
 
@@ -190,41 +192,13 @@ class RTMPServer:
 
         await self.disconnect(client_state.id)
 
-    # async def disconnect(self, client_id):
-    #     # Close the client connection
-    #     client_state = self.client_states[client_id]
-    #
-    #     if client_state.stream_mode == 'live':
-    #         # Finish Stream for players!
-    #         print("NEED DISCONNECT Players!")
-    #
-    #     client_ip = client_state.client_ip
-    #     for app in LiveUsers:
-    #         if LiveUsers[app]['client_id'] == client_id:
-    #             del LiveUsers[app]
-    #             break
-    #
-    #     client_state.IncomingPackets.clear()
-    #
-    #     del self.client_states[client_id]
-    #     try:
-    #         client_state.writer.close()
-    #         await client_state.writer.wait_closed()
-    #         self.logger.info("Client disconnected: %s", client_ip)
-    #     except Exception as e:
-    #         # Handle the exception here, perform other tasks, or log the error.
-    #         self.logger.error(f"Error occurred while disconnecting client: {e}")
-
     async def disconnect(self, client_id):
         client_state = self.client_states.get(client_id)
 
         # Удаляем из LiveUsers, если клиент является издателем
-        if client_state.app in LiveUsers and LiveUsers[client_state.app]:
-            del LiveUsers[client_state.app]
-            self.logger.info("Stream unpublished for app: %s, client: %s", client_state.app, client_id)
-
-            # Если ключ больше не существует, удаляем приложение
-            if client_state.app in LiveUsers and not LiveUsers[client_state.app]:
+        if client_state and client_state.app in LiveUsers:
+            if LiveUsers[client_state.app].get('client_id') == client_id:
+                self.logger.info("Disconnecting publisher for app: %s", client_state.app)
                 del LiveUsers[client_state.app]
 
         # Удаляем из Players, если клиент является плеером
@@ -243,7 +217,6 @@ class RTMPServer:
                 del PlayerUsers[client_state.app][client_id]
                 self.logger.info("Player removed from PlayerUsers: %s", client_id)
             self.logger.info("PlayerUsers state: %s", PlayerUsers)
-
             # Если больше нет игроков для данного приложения, удаляем ключ
             if not PlayerUsers[client_state.app]:
                 del PlayerUsers[client_state.app]
@@ -505,17 +478,19 @@ class RTMPServer:
         client_state = self.client_states[client_id]
         payload = rtmp_packet['payload']
 
-        # self.logger.info(f"PlayerUsers: {PlayerUsers}")
-
         # Проверяем, есть ли плееры
         if client_state.app in PlayerUsers and PlayerUsers[client_state.app]:
-            for player_id, player_info in PlayerUsers[client_state.app].items():
-                self.logger.info("Forwarding video packet to player: %s", player_id)
-                try:
-                    await self.writeMessage(player_id, rtmp_packet)
-                except Exception as e:
-                    self.logger.info(rtmp_packet)
-                    self.logger.error("Failed to send video packet to player %s: %s", player_id, e)
+            for player_id, player_state in PlayerUsers[client_state.app].items():
+                if isinstance(player_state, ClientState):
+                    self.logger.info("Forwarding video packet to player: %s", player_id)
+                    try:
+                        # Преобразование rtmp_packet
+                        message = RTMPMessage(rtmp_packet)
+                        await self.writeMessage(player_id, message)
+                    except Exception as e:
+                        self.logger.error("Failed to send video packet to player %s: %s", player_id, e)
+                else:
+                    self.logger.error("Invalid player state for player_id %s: %s", player_id, type(player_state))
         # else:
         #     self.logger.info("No players connected to receive video packets.")
 
@@ -574,15 +549,6 @@ class RTMPServer:
             client_state.videoCodec = codec_id
             client_state.videoCodecName = common.VIDEO_CODEC_NAME[codec_id]
             self.logger.info("Codec Name: %s", client_state.videoCodecName)
-
-        # Forward video data to connected players
-        # self.logger.info(f"PlayerUsers: {PlayerUsers}")
-        # if PlayerUsers:
-        #     for player_id in PlayerUsers:
-        #         self.logger.info("Forwarding video packet to player: %s", player_id)
-        #         await self.writeMessage(player_id, rtmp_packet)
-        # else:
-        #     self.logger.info("No players connected to receive video packets.")
 
     async def handle_audio_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
@@ -653,28 +619,6 @@ class RTMPServer:
         self.logger.debug("Updated peer bandwidth: %d, Limit type: %d", client_state.peer_bandwidth, limit_type)
 
 
-    # async def handle_invoke_message(self, client_id, invoke):
-    #     self.logger.info("Invoke command received: %s", invoke['command'])
-    #     if invoke['cmd'] == 'connect':
-    #         self.logger.debug("Received connect invoke")
-    #         await self.handle_connect_command(client_id, invoke)
-    #     elif invoke['cmd'] == 'releaseStream' or invoke['cmd'] == 'FCPublish'or invoke['cmd'] == 'FCUnpublish' or invoke['cmd'] == 'getStreamLength':
-    #         self.logger.debug("Received %s invoke", invoke['cmd'])
-    #         return
-    #     elif invoke['cmd'] == 'createStream':
-    #         self.logger.debug("Received createStream invoke")
-    #         await self.response_createStream(client_id, invoke)
-    #     elif invoke['cmd'] == 'publish':
-    #         self.logger.debug("Received publish invoke")
-    #         await self.handle_publish(client_id, invoke)
-    #     elif invoke['cmd'] == 'play':
-    #         self.logger.debug("Received play invoke")
-    #         await self.handle_onPlay(client_id, invoke)
-    #     # Need to add and support other CMDs.
-    #     else:
-    #         self.logger.info("Unsupported invoke command %s!", invoke['cmd'])
-
-
     # Новая версия метода
     async def handle_invoke_message(self, client_id, invoke):
         # Проверяем наличие ключа 'command' перед использованием
@@ -708,16 +652,6 @@ class RTMPServer:
         # Получение состояния клиента (объекта ClientState), связанного с данным client_id.
         client_state = self.client_states[client_id]
 
-        # Проверка: существует ли поток, связанный с приложением клиента (client_state.app).
-        # Если нет, то поток не существует, клиент получает сообщение об ошибке, и соединение разрывается.
-        # if not client_state.app in LiveUsers:
-        #     self.logger.warning("Stream not exists to play!")  # Логирование предупреждения об отсутствии потока.
-            # await self.sendStatusMessage(
-            #     client_id, client_state.publishStreamId, "error",
-            #     "NetStream.Play.BadName", "Stream not exists"
-            # )  # Отправка клиенту сообщения об ошибке.
-            # raise DisconnectClientException()  # Исключение для разрыва соединения с клиентом.
-
         # Проверяем, существует ли поток
         if client_state.app not in LiveUsers or not LiveUsers[client_state.app]:
             self.logger.warning("No active streams found for app: %s", client_state.app)
@@ -725,30 +659,30 @@ class RTMPServer:
 
         # Получение идентификатора клиента, который публикует поток (из LiveUsers).
         publisher_id = LiveUsers[client_state.app]['client_id']
-        # publisher_id = next(iter(LiveUsers[client_state.app].keys()), None)
+        # Извлечение состояния клиента, который публикует поток, на основе его client_id.
+        publisher_client_state = self.client_states[publisher_id]
+        self.logger.info(f"PUBLISHER_CLIENT_STATE {publisher_client_state}")
+
         if not publisher_id:
             self.logger.warning("No publisher found for app: %s", client_state.app)
             raise DisconnectClientException()
-        # Извлечение состояния клиента, который публикует поток, на основе его client_id.
-        publisher_client_state = self.client_states[publisher_id]
 
         # Добавляем клиента в PlayerUsers
         if client_state.app not in PlayerUsers:
             PlayerUsers[client_state.app] = {}
 
-        PlayerUsers[client_state.app][client_id] = {
-            "client_id": client_id,
-            "stream_id": invoke['packet']['header']['stream_id']
-        }
-        self.logger.info("Player added to PlayerUsers: %s", PlayerUsers)
+        if client_id not in PlayerUsers[client_state.app]:
+            PlayerUsers[client_state.app][client_id] = client_state  # Сохраняем объект ClientState
+            self.logger.info("Player added to PlayerUsers: %s", PlayerUsers[client_state.app])
 
         # Инициализируем Players, если еще не создано
         if not hasattr(publisher_client_state, "Players"):
             publisher_client_state.Players = {}
 
         # Добавляем текущего клиента (плеера) в Players
-        publisher_client_state.Players[client_id] = client_state
-        self.logger.info("Player added to Players: %s for stream: %s", client_id, client_state.app)
+        if client_id not in publisher_client_state.Players:
+            publisher_client_state.Players[client_id] = client_state  # Сохраняем объект ClientState
+            self.logger.info("Player added to Players: %s for stream: %s", client_id, client_state.app)
 
         # Проверка: если у публикующего клиента есть сохраненные метаданные потока.
         if publisher_client_state.metaDataPayload != None:
@@ -770,8 +704,8 @@ class RTMPServer:
             self.logger.info("Sent metadata to client: %s", client_id)
 
             # Дополнительное логирование содержимого метаданных
-            self.logger.info("Metadata payload: %s", publisher_client_state.metaDataPayload)
-            self.logger.info("Metadata object: %s", publisher_client_state.metaData)
+            self.logger.debug("Metadata payload: %s", publisher_client_state.metaDataPayload)
+            self.logger.debug("Metadata object: %s", publisher_client_state.metaData)
 
             # Перемещение указателя на начало потока для чтения данных.
             output.seek(0)
@@ -1006,50 +940,91 @@ class RTMPServer:
         await self.writeMessage(client_id, message)
 
     async def writeMessage(self, client_id, message):
+        # Проверка наличия client_id в client_states
+        if client_id not in self.client_states:
+            self.logger.error(f"Client {client_id} not found in client_states!")
+            return
+
         client_state = self.client_states[client_id]
-        if message.streamId in client_state.lastWriteHeaders:
-            header = client_state.lastWriteHeaders[message.streamId]
-        else:
+
+        # Инициализация header
+        header = client_state.lastWriteHeaders.get(message.streamId)
+        if not header:
             if client_state.nextChannelId <= PROTOCOL_CHANNEL_ID:
                 client_state.nextChannelId = PROTOCOL_CHANNEL_ID + 1
-            header, client_state.nextChannelId = common.Header(
-                client_state.nextChannelId), client_state.nextChannelId + 1
+            header = common.Header(client_state.nextChannelId)
+            client_state.nextChannelId += 1
             client_state.lastWriteHeaders[message.streamId] = header
+
         if message.type < message.AUDIO:
             header = common.Header(PROTOCOL_CHANNEL_ID)
 
-        # now figure out the header data bytes
+        self.logger.info(f"INITIALIZED HEADER: {header}")
+
+        # Формирование header данных
         if header.streamId != message.streamId or header.time == 0 or message.time <= header.time:
-            header.streamId, header.type, header.size, header.time, header.delta = message.streamId, message.type, message.size, message.time, message.time
+            header.streamId = message.streamId
+            header.type = message.type
+            header.size = message.size
+            header.time = message.time
+            header.delta = message.time
             control = common.Header.FULL
         elif header.size != message.size or header.type != message.type:
-            header.type, header.size, header.time, header.delta = message.type, message.size, message.time, message.time - header.time
+            header.type = message.type
+            header.size = message.size
+            header.time = message.time
+            header.delta = message.time - header.time
             control = common.Header.MESSAGE
         else:
-            header.time, header.delta = message.time, message.time - header.time
+            header.time = message.time
+            header.delta = message.time - header.time
             control = common.Header.TIME
+
+        self.logger.info(f"Control type: {control}")
 
         hdr = common.Header(
             channel=header.channel,
-            time=header.delta if control in (
-                common.Header.MESSAGE,
-                common.Header.TIME) else header.time,
+            time=header.delta if control in (common.Header.MESSAGE, common.Header.TIME) else header.time,
             size=header.size,
             type=header.type,
-            streamId=header.streamId)
-        assert message.size == len(message.data)
+            streamId=header.streamId
+        )
+
         data = b''
-        while len(message.data) > 0:
-            data = data + hdr.toBytes(control)  # gather header bytes
-            count = min(client_state.out_chunk_size, len(message.data))
-            data = data + message.data[:count]
-            message.data = message.data[count:]
-            control = common.Header.SEPARATOR  # incomplete message continuation
+
+        # Упрощенная логика для отладки
         try:
+            hdr = common.Header(
+                channel=header.channel,
+                time=0,  # Подставьте корректные значения
+                size=len(message.data),
+                type=message.type,
+                streamId=message.streamId
+            )
+
+            # Формируем пакет
+            data = hdr.toBytes(common.Header.FULL) + message.data
             await self.send(client_id, data)
-            self.logger.debug("Message sent!")
-        except:
-            self.logger.debug("Error on sending message!")
+            self.logger.info("Message sent successfully!")
+        except Exception as e:
+            self.logger.error(f"Failed to send message: {e}")
+
+        # try:
+        #     while len(message.data) > 0:
+        #         self.logger.debug("Adding header to data stream...")
+        #         data += hdr.toBytes(control)
+        #         count = min(client_state.out_chunk_size, len(message.data))
+        #         data += message.data[:count]
+        #         message.data = message.data[count:]
+        #         control = common.Header.SEPARATOR
+        #
+        #     self.logger.debug(f"Prepared data to send (first 50 bytes): {data[:50]}")
+        #     await self.send(client_id, data)
+        #     self.logger.info("Message sent successfully!")
+        # except KeyError as e:
+        #     self.logger.error(f"KeyError during send: {e}")
+        # except Exception as e:
+        #     self.logger.error(f"Unexpected error during send: {e}")
 
     async def handle_amf_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
