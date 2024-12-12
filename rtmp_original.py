@@ -487,6 +487,11 @@ class RTMPServer:
                         # Преобразование rtmp_packet
                         message = RTMPMessage(rtmp_packet)
                         await self.writeMessage(player_id, message)
+                        self.logger.info(
+                            f"SENT VIDEO PACKET TO PLAYER {client_id}, streamId: {message.streamId}, size: {message.size}, type: {message.type}")
+                        if client_state.avcSequenceHeader:
+                            self.logger.info(f"Sending AVC Sequence Header to player: {player_id}")
+
                     except Exception as e:
                         self.logger.error("Failed to send video packet to player %s: %s", player_id, e)
                 else:
@@ -544,54 +549,87 @@ class RTMPServer:
                 self.logger.info("CodecID: %d, Video Level: %f, Profile Name: %s, Width: %d, Height: %d, Profile: %d",
                                  codec_id, client_state.videoLevel, client_state.videoProfileName,
                                  client_state.videoWidth, client_state.videoHeight, info['profile'])
+            else:
+                self.logger.error(f"FRAME_TYPE: {frame_type}")
 
         if client_state.videoCodec == 0:
             client_state.videoCodec = codec_id
             client_state.videoCodecName = common.VIDEO_CODEC_NAME[codec_id]
             self.logger.info("Codec Name: %s", client_state.videoCodecName)
+        else:
+            self.logger.error(f"CLIENT_STATE.VIDEOCODEC: {client_state.videoCodec}")
 
     async def handle_audio_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
         payload = rtmp_packet['payload']
+
+        # Проверяем, есть ли плееры
+        if client_state.app in PlayerUsers and PlayerUsers[client_state.app]:
+            for player_id, player_state in PlayerUsers[client_state.app].items():
+                if isinstance(player_state, ClientState):
+                    self.logger.info("Forwarding audio packet to player: %s", player_id)
+                    try:
+                        # Преобразование rtmp_packet
+                        message = RTMPMessage(rtmp_packet)
+                        await self.writeMessage(player_id, message)
+                        self.logger.info(
+                            f"SENT AUDIO PACKET TO PLAYER {client_id}, streamId: {message.streamId}, size: {message.size}, type: {message.type}")
+                        if client_state.aacSequenceHeader:
+                            self.logger.info(f"Sending AAC Sequence Header to player: {player_id}")
+                    except Exception as e:
+                        self.logger.error("Failed to send audio packet to player %s: %s", player_id, e)
+                else:
+                    self.logger.error("Invalid player state for player_id %s: %s", player_id, type(player_state))
+        # else:
+        #     self.logger.info("No players connected to receive audio packets.")
+
+        # Разбираем аудиопакет
         sound_format = (payload[0] >> 4) & 0x0f
         sound_type = payload[0] & 0x01
         sound_size = (payload[0] >> 1) & 0x01
         sound_rate = (payload[0] >> 2) & 0x03
 
         if client_state.audioCodec == 0:
+            # Инициализируем аудиокодек
             client_state.audioCodec = sound_format
-            client_state.audioCodecName = av.AUDIO_CODEC_NAME[sound_format]
-            client_state.audioSampleRate = av.AUDIO_SOUND_RATE[sound_rate]
+            # Безопасная обработка AUDIO_CODEC_NAME
+            client_state.audioCodecName = (
+                av.AUDIO_CODEC_NAME[sound_format]
+                if 0 <= sound_format < len(av.AUDIO_CODEC_NAME)
+                else "Unknown"
+            )
+
+            # Безопасная обработка AUDIO_SOUND_RATE
+            client_state.audioSampleRate = (
+                av.AUDIO_SOUND_RATE[sound_rate]
+                if 0 <= sound_rate < len(av.AUDIO_SOUND_RATE)
+                else 0
+            )
             client_state.audioChannels = sound_type + 1
 
-            if sound_format == 4:
-                # Nellymoser 16 kHz
+            # Обработка специфических форматов
+            if sound_format == 4:  # Nellymoser 16 kHz
                 client_state.audioSampleRate = 16000
-            elif sound_format in (5, 7, 8):
-                # Nellymoser 8 kHz | G.711 A-law | G.711 mu-law
+            elif sound_format in (5, 7, 8):  # Nellymoser 8 kHz | G.711
                 client_state.audioSampleRate = 8000
-            elif sound_format == 11:
-                # Speex
+            elif sound_format == 11:  # Speex
                 client_state.audioSampleRate = 16000
-            elif sound_format == 14:
-                # MP3 8 kHz
+            elif sound_format == 14:  # MP3 8 kHz
                 client_state.audioSampleRate = 8000
 
         if (sound_format == 10 or sound_format == 13) and payload[1] == 0:
-            # cache AAC sequence header
+            # Сохраняем AAC Sequence Header
             client_state.isFirstAudioReceived = True
             client_state.aacSequenceHeader = payload
 
-            if sound_format == 10:
+            if sound_format == 10:  # AAC
                 info = av.read_aac_specific_config(client_state.aacSequenceHeader)
                 client_state.audioProfileName = av.get_aac_profile_name(info)
                 client_state.audioSampleRate = info['sample_rate']
-                client_state.audioChannels = info['sample_rate']
-            else:
+                client_state.audioChannels = info['channels']
+            else:  # Прочие форматы
                 client_state.audioSampleRate = 48000
                 client_state.audioChannels = payload[11]
-
-        # write for players
 
     def handle_chunk_size_message(self, client_id, payload):
         # Handle Chunk Size message
@@ -725,6 +763,7 @@ class RTMPServer:
 
             # Отправка RTMP-сообщения клиенту, запросившему воспроизведение.
             await self.writeMessage(client_id, response)
+
         self.logger.info("Client %s started playing stream: %s", client_id, client_state.app)
 
     async def handle_publish(self, client_id, invoke):
@@ -735,7 +774,7 @@ class RTMPServer:
         # Определение режима стрима (по умолчанию 'live'). Если в аргументах `invoke['args']` больше одного элемента, используется второй аргумент.
         # Режим может быть: 'live', 'record', 'append'.
         # client_state.stream_mode = 'live' if len(invoke['args']) < 2 else invoke['args'][1]  # live, record, append
-        # УПРОЩЕННАЯ ВЕРСИЯ ДЛЯ ДЕМО
+        # TODO УПРОЩЕННАЯ ВЕРСИЯ ДЛЯ ДЕМО
         client_state.stream_mode = 'live'
 
         # Установка пути потока (обычно это ключ потока), берется из первого аргумента `invoke['args']`.
@@ -992,39 +1031,39 @@ class RTMPServer:
 
         data = b''
 
-        # Упрощенная логика для отладки
-        try:
-            hdr = common.Header(
-                channel=header.channel,
-                time=0,  # Подставьте корректные значения
-                size=len(message.data),
-                type=message.type,
-                streamId=message.streamId
-            )
+        # TODO Упрощенная логика для отладки
+        # try:
+        #     hdr = common.Header(
+        #         channel=header.channel,
+        #         time=0,  # Подставьте корректные значения
+        #         size=len(message.data),
+        #         type=message.type,
+        #         streamId=message.streamId
+        #     )
+        #
+        #     # Формируем пакет
+        #     data = hdr.toBytes(common.Header.FULL) + message.data
+        #     await self.send(client_id, data)
+        #     # self.logger.info("Message sent successfully!")
+        # except Exception as e:
+        #     self.logger.error(f"Failed to send message: {e}")
 
-            # Формируем пакет
-            data = hdr.toBytes(common.Header.FULL) + message.data
+        try:
+            while len(message.data) > 0:
+                self.logger.debug("Adding header to data stream...")
+                data += hdr.toBytes(control)
+                count = min(client_state.out_chunk_size, len(message.data))
+                data += message.data[:count]
+                message.data = message.data[count:]
+                control = common.Header.SEPARATOR
+
+            self.logger.debug(f"Prepared data to send (first 50 bytes): {data[:50]}")
             await self.send(client_id, data)
             self.logger.info("Message sent successfully!")
+        except KeyError as e:
+            self.logger.error(f"KeyError during send: {e}")
         except Exception as e:
-            self.logger.error(f"Failed to send message: {e}")
-
-        # try:
-        #     while len(message.data) > 0:
-        #         self.logger.debug("Adding header to data stream...")
-        #         data += hdr.toBytes(control)
-        #         count = min(client_state.out_chunk_size, len(message.data))
-        #         data += message.data[:count]
-        #         message.data = message.data[count:]
-        #         control = common.Header.SEPARATOR
-        #
-        #     self.logger.debug(f"Prepared data to send (first 50 bytes): {data[:50]}")
-        #     await self.send(client_id, data)
-        #     self.logger.info("Message sent successfully!")
-        # except KeyError as e:
-        #     self.logger.error(f"KeyError during send: {e}")
-        # except Exception as e:
-        #     self.logger.error(f"Unexpected error during send: {e}")
+            self.logger.error(f"Unexpected error during send: {e}")
 
     async def handle_amf_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
