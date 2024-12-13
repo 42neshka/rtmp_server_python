@@ -228,6 +228,7 @@ class RTMPServer:
 
     async def get_chunk_data(self, client_id):
         # Read a chunk of data from the client
+
         client_state = self.client_states[client_id]
         payload_length = 0
 
@@ -477,6 +478,8 @@ class RTMPServer:
         # Handle video data in an RTMP packet
         client_state = self.client_states[client_id]
         payload = rtmp_packet['payload']
+        payload = self.add_start_code(payload)
+        # self.logger.info(f"PAYLOAD: {payload}")
 
         # Проверяем, есть ли плееры
         if client_state.app in PlayerUsers and PlayerUsers[client_state.app]:
@@ -503,6 +506,9 @@ class RTMPServer:
         frame_type = payload[0] >> 4 & 0b0111
         codec_id = payload[0] & 0x0f
         packetType = payload[0] & 0x0f
+        # self.logger.info(f"{isExHeader}***{frame_type}***{codec_id}***{packetType}")
+        # self.logger.info(f"Payload data: {payload.hex()}")
+
         # Handle Video Data!
         if isExHeader:
             if packetType == PacketTypeMetadata:
@@ -539,7 +545,7 @@ class RTMPServer:
                 return
 
         if codec_id in [7, 12, 13]:
-            if frame_type == 1 and payload[1] == 0:
+            if frame_type == 1 and payload[1] == 0:  # I-frame
                 client_state.avcSequenceHeader = bytearray(payload)
                 info = av.readAVCSpecificConfig(client_state.avcSequenceHeader)
                 client_state.videoWidth = info['width']
@@ -549,15 +555,17 @@ class RTMPServer:
                 self.logger.info("CodecID: %d, Video Level: %f, Profile Name: %s, Width: %d, Height: %d, Profile: %d",
                                  codec_id, client_state.videoLevel, client_state.videoProfileName,
                                  client_state.videoWidth, client_state.videoHeight, info['profile'])
+            elif frame_type == 2:  # P-frame
+                self.logger.info("Processing P-frame")
             else:
-                self.logger.error(f"FRAME_TYPE: {frame_type}")
+                self.logger.error(f"FRAME_TYPE_UNKNOWN: {frame_type}")
 
+        # Кодек клиента устанавливается только один раз, когда он равен 0 и больше не меняется (7 = H.264)
         if client_state.videoCodec == 0:
             client_state.videoCodec = codec_id
             client_state.videoCodecName = common.VIDEO_CODEC_NAME[codec_id]
-            self.logger.info("Codec Name: %s", client_state.videoCodecName)
-        else:
-            self.logger.error(f"CLIENT_STATE.VIDEOCODEC: {client_state.videoCodec}")
+            # self.logger.info("VIDEO CODEC NAME: %s", common.VIDEO_CODEC_NAME[codec_id])
+            # self.logger.info("Codec Name: %s", client_state.videoCodecName)
 
     async def handle_audio_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
@@ -576,6 +584,7 @@ class RTMPServer:
                             f"SENT AUDIO PACKET TO PLAYER {client_id}, streamId: {message.streamId}, size: {message.size}, type: {message.type}")
                         if client_state.aacSequenceHeader:
                             self.logger.info(f"Sending AAC Sequence Header to player: {player_id}")
+                            self.logger.info(f"CLIENT_STATE.AACSEQUENCEHEADER: {client_state.aacSequenceHeader}")
                     except Exception as e:
                         self.logger.error("Failed to send audio packet to player %s: %s", player_id, e)
                 else:
@@ -978,6 +987,13 @@ class RTMPServer:
         self.logger.debug("Sending connect response!")
         await self.writeMessage(client_id, message)
 
+    def add_start_code(self, data):
+        # self.logger.info(f"RUN ADD_START_CODE")
+        if not data.startswith(b'\x00\x00\x00\x01'):
+            # self.logger.info(f"DATA: {b'\x00\x00\x00\x01' + data}")
+            return b'\x00\x00\x00\x01' + data
+        return data
+
     async def writeMessage(self, client_id, message):
         # Проверка наличия client_id в client_states
         if client_id not in self.client_states:
@@ -1059,7 +1075,7 @@ class RTMPServer:
 
             self.logger.debug(f"Prepared data to send (first 50 bytes): {data[:50]}")
             await self.send(client_id, data)
-            self.logger.info("Message sent successfully!")
+            # self.logger.info("Message sent successfully!")
         except KeyError as e:
             self.logger.error(f"KeyError during send: {e}")
         except Exception as e:
