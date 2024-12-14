@@ -478,38 +478,38 @@ class RTMPServer:
         # Handle video data in an RTMP packet
         client_state = self.client_states[client_id]
         payload = rtmp_packet['payload']
-        payload = self.add_start_code(payload)
-        # self.logger.info(f"PAYLOAD: {payload}")
 
         # Проверяем, есть ли плееры
-        if client_state.app in PlayerUsers and PlayerUsers[client_state.app]:
-            for player_id, player_state in PlayerUsers[client_state.app].items():
-                if isinstance(player_state, ClientState):
-                    self.logger.info("Forwarding video packet to player: %s", player_id)
-                    try:
-                        # Преобразование rtmp_packet
-                        message = RTMPMessage(rtmp_packet)
-                        await self.writeMessage(player_id, message)
-                        self.logger.info(
-                            f"SENT VIDEO PACKET TO PLAYER {client_id}, streamId: {message.streamId}, size: {message.size}, type: {message.type}")
-                        if client_state.avcSequenceHeader:
-                            self.logger.info(f"Sending AVC Sequence Header to player: {player_id}")
-
-                    except Exception as e:
-                        self.logger.error("Failed to send video packet to player %s: %s", player_id, e)
-                else:
-                    self.logger.error("Invalid player state for player_id %s: %s", player_id, type(player_state))
+        # if client_state.app in PlayerUsers and PlayerUsers[client_state.app]:
+        #     for player_id, player_state in PlayerUsers[client_state.app].items():
+        #         if isinstance(player_state, ClientState):
+        #             self.logger.info("Forwarding video packet to player: %s", player_id)
+        #             try:
+        #                 # Преобразование rtmp_packet
+        #                 message = RTMPMessage(rtmp_packet)
+        #                 await self.writeMessage(player_id, message)
+        #                 self.logger.info(
+        #                     f"SENT VIDEO PACKET TO PLAYER {client_id}, streamId: {message.streamId}, size: {message.size}, type: {message.type}")
+        #                 if client_state.avcSequenceHeader:
+        #                     self.logger.info(f"Sending AVC Sequence Header to player: {player_id}")
+        #
+        #             except Exception as e:
+        #                 self.logger.error("Failed to send video packet to player %s: %s", player_id, e)
+        #         else:
+        #             self.logger.error("Invalid player state for player_id %s: %s", player_id, type(player_state))
         # else:
         #     self.logger.info("No players connected to receive video packets.")
 
         isExHeader = (payload[0] >> 4 & 0b1000) != 0
+        self.logger.info(f"ISEXHEADER PAYLOAD: {payload[0] >> 4 & 0b1000}")
+        self.logger.info(f"ISEXHEADER PAYLOAD: {payload[0]:08b}, ISEXHEADER: {isExHeader}")
+        self.logger.info(f"PAYLOAD: {payload[:50]}")
         frame_type = payload[0] >> 4 & 0b0111
         codec_id = payload[0] & 0x0f
         packetType = payload[0] & 0x0f
-        # self.logger.info(f"{isExHeader}***{frame_type}***{codec_id}***{packetType}")
-        # self.logger.info(f"Payload data: {payload.hex()}")
 
         # Handle Video Data!
+        self.logger.info(f"ISEXHEADER: {isExHeader}")
         if isExHeader:
             if packetType == PacketTypeMetadata:
                 pass
@@ -529,6 +529,7 @@ class RTMPServer:
                         payload[2:5] = b'\x00\x00\x00'
                     payload[0] = (frame_type << 4) | 0x0c
                     payload[1] = 1
+                    self.logger.info(f"PAYLOAD: {payload[:50]}")
             elif FourCC == FourCC_AV1:
                 codec_id = 13
                 if packetType == PacketTypeSequenceStart:
@@ -544,28 +545,51 @@ class RTMPServer:
                 self.logger.debug("unsupported extension header")
                 return
 
+        # self.logger.info(f"PAYLOAD: {payload[0]}")
+        # self.logger.info(f"PAYLOAD: {payload[0]:08b}")
+        # self.logger.info(f"PAYLOAD: {payload}")
+
         if codec_id in [7, 12, 13]:
-            if frame_type == 1 and payload[1] == 0:  # I-frame
+            self.logger.info(f"CODEC_ID: {codec_id}")
+            self.logger.info(f"PAYLOAD[1]: {payload[1]}")
+
+            if frame_type == 1: # and payload[1] == 0:  # I-frame
+                self.logger.info("Processing I-frame")
+                # self.logger.info(f"I-frame payload: {payload.hex()}")
                 client_state.avcSequenceHeader = bytearray(payload)
-                info = av.readAVCSpecificConfig(client_state.avcSequenceHeader)
-                client_state.videoWidth = info['width']
-                client_state.videoHeight = info['height']
-                client_state.videoProfileName = av.getAVCProfileName(info)
-                client_state.videoLevel = info['level']
-                self.logger.info("CodecID: %d, Video Level: %f, Profile Name: %s, Width: %d, Height: %d, Profile: %d",
+                self.logger.info(f"AVCSEQUENCEHEADER: {client_state.avcSequenceHeader[:100]}")
+                # self.logger.info(f"Payload data before parsing: {client_state.avcSequenceHeader.hex()}")
+
+                try:
+                    if payload[0] & 0x1f == 7:  # NAL Type 7 (SPS)
+                        self.logger.info("Valid SPS detected")
+                    else:
+                        self.logger.error("Invalid SPS or missing")
+
+
+                    info = av.readAVCSpecificConfig(client_state.avcSequenceHeader)
+                    self.logger.info(f"AVC Info: {info}")
+                    client_state.videoWidth = info['width']
+                    client_state.videoHeight = info['height']
+                    client_state.videoProfileName = av.getAVCProfileName(info)
+                    client_state.videoLevel = info['level']
+                    self.logger.info("CodecID: %d, Video Level: %f, Profile Name: %s, Width: %d, Height: %d, Profile: %d",
                                  codec_id, client_state.videoLevel, client_state.videoProfileName,
                                  client_state.videoWidth, client_state.videoHeight, info['profile'])
+                except KeyError as e:
+                    self.logger.error(f"Missing key in AVC Info: {e}")
+
             elif frame_type == 2:  # P-frame
                 self.logger.info("Processing P-frame")
             else:
                 self.logger.error(f"FRAME_TYPE_UNKNOWN: {frame_type}")
+                self.logger.info(f"CODEC_ID UNKNOWN: {codec_id}")
 
         # Кодек клиента устанавливается только один раз, когда он равен 0 и больше не меняется (7 = H.264)
         if client_state.videoCodec == 0:
             client_state.videoCodec = codec_id
             client_state.videoCodecName = common.VIDEO_CODEC_NAME[codec_id]
-            # self.logger.info("VIDEO CODEC NAME: %s", common.VIDEO_CODEC_NAME[codec_id])
-            # self.logger.info("Codec Name: %s", client_state.videoCodecName)
+            # self.logger.info(f"CLIENT STATE{client_state.__dict__}")
 
     async def handle_audio_data(self, client_id, rtmp_packet):
         client_state = self.client_states[client_id]
@@ -778,7 +802,7 @@ class RTMPServer:
     async def handle_publish(self, client_id, invoke):
         # Извлечение состояния клиента (объекта ClientState), соответствующего заданному client_id.
         client_state = self.client_states[client_id]
-        self.logger.info(f"client_state PUBLISH: {client_state}")
+        # self.logger.info(f"client_state PUBLISH: {client_state}")
 
         # Определение режима стрима (по умолчанию 'live'). Если в аргументах `invoke['args']` больше одного элемента, используется второй аргумент.
         # Режим может быть: 'live', 'record', 'append'.
@@ -988,10 +1012,13 @@ class RTMPServer:
         await self.writeMessage(client_id, message)
 
     def add_start_code(self, data):
+        # Добавляет стартовый код к NAL-единицам
         # self.logger.info(f"RUN ADD_START_CODE")
-        if not data.startswith(b'\x00\x00\x00\x01'):
+        if not data.startswith(b'\x00\x00\x01'):
+            # self.logger.info(f"DATA: {type(data)}")
+            # self.logger.info(f"DATA: {type(bytearray(b'\x00\x00\x00\x01' + data))}")
             # self.logger.info(f"DATA: {b'\x00\x00\x00\x01' + data}")
-            return b'\x00\x00\x00\x01' + data
+            return bytearray(b'\x00\x00\x01' + data)
         return data
 
     async def writeMessage(self, client_id, message):
